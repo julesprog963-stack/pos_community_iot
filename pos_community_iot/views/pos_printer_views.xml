@@ -21,7 +21,7 @@
         <field name="model">pos.printer</field>
         <field name="inherit_id" ref="point_of_sale.view_pos_printer"/>
         <field name="arch" type="xml">
-            <xpath expr="//tree/field[@name='proxy_ip']" position="after">
+            <xpath expr="//list/field[@name='proxy_ip']" position="after">
                 <field name="community_iot_enabled" optional="show"/>
                 <field name="community_iot_device_id" optional="show"/>
             </xpath>

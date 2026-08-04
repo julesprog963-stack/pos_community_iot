@@ -1,71 +1,52 @@
 /** @odoo-module **/
 
 import { patch } from "@web/core/utils/patch";
-import { renderToElement } from "@web/core/utils/render";
-import { Order } from "@point_of_sale/app/store/models";
+import { PosStore } from "@point_of_sale/app/services/pos_store";
 
-patch(Order.prototype, {
-    async printChanges(cancelled) {
-        const orderChange = this.changesToOrder(cancelled);
-        let isPrintSuccessful = true;
-        const currentDate = new Date();
-        let hours = `${currentDate.getHours()}`;
-        let minutes = `${currentDate.getMinutes()}`;
-        hours = hours.length < 2 ? `0${hours}` : hours;
-        minutes = minutes.length < 2 ? `0${minutes}` : minutes;
-
-        for (const printer of this.pos.unwatched.printers) {
-            const changes = this._getPrintingCategoriesChanges(
-                printer.config.product_categories_ids,
-                orderChange
-            );
-            if (changes.new.length === 0 && changes.cancelled.length === 0) {
-                continue;
-            }
-
+patch(PosStore.prototype, {
+    async printOrderChanges(data, printer) {
+        if (printer.config.community_iot_enabled && printer.config.community_iot_device_id) {
+            const title = data?.changes?.title || "Changes";
+            const isCancellation = /cancel|remove/i.test(title);
+            const changedLines = (data?.changes?.data || []).map((line) => ({
+                name: line.name || line.product_name || line.display_name || "Item",
+                quantity: Math.abs(line.quantity || line.qty || 1),
+                note: line.note || line.customer_note || "",
+            }));
+            const now = new Date();
             const printingChanges = {
-                new: changes.new,
-                cancelled: changes.cancelled,
-                table_name: this.pos.config.module_pos_restaurant ? this.getTable().name : false,
-                floor_name: this.pos.config.module_pos_restaurant ? this.getTable().floor.name : false,
-                name: this.name || "unknown order",
-                time: { hours, minutes },
+                new: isCancellation ? [] : changedLines,
+                cancelled: isCancellation ? changedLines : [],
+                // Odoo 19 preparation data exposes the POS order reference as
+                // `pos_reference`; older payloads used `name` or `order_name`.
+                name: data?.pos_reference || data?.name || data?.order_name || "unknown order",
+                table_name: data?.table_name || "",
+                floor_name: data?.floor_name || "",
+                time: {
+                    hours: String(now.getHours()).padStart(2, "0"),
+                    minutes: String(now.getMinutes()).padStart(2, "0"),
+                },
+                operational_title: title,
             };
-
-            if (printer.config.community_iot_enabled && printer.config.community_iot_device_id) {
-                try {
-                    const result = await this.pos.orm.call(
-                        "pos.printer",
-                        "action_pos_community_iot_print_preparation",
-                        [
-                            [printer.config.id],
-                            {
-                                order_ref: this.name || "unknown order",
-                                order_server_id: this.backendId || false,
-                                printing_changes: printingChanges,
-                            },
-                        ]
-                    );
-                    if (!result?.success) {
-                        isPrintSuccessful = false;
-                    } else {
-                        continue;
-                    }
-                } catch (error) {
-                    console.warn("Community IoT preparation print failed.", error);
-                    isPrintSuccessful = false;
+            try {
+                const result = await this.data.call(
+                    "pos.printer",
+                    "action_pos_community_iot_print_preparation",
+                    [[printer.config.id], {
+                        order_ref: printingChanges.name,
+                        printing_changes: printingChanges,
+                    }]
+                );
+                if (result?.success) {
+                    return { successful: true };
                 }
-            }
-
-            const receipt = renderToElement("point_of_sale.OrderChangeReceipt", {
-                changes: printingChanges,
-            });
-            const result = await printer.printReceipt(receipt);
-            if (!result.successful) {
-                isPrintSuccessful = false;
+            } catch (error) {
+                console.warn(
+                    "Community IoT preparation print failed, falling back to the configured printer.",
+                    error
+                );
             }
         }
-
-        return isPrintSuccessful;
+        return super.printOrderChanges(...arguments);
     },
 });
