@@ -1,9 +1,9 @@
-import json
-
-from odoo import api, fields, models
+from odoo import _, api, fields, models
 from odoo.exceptions import ValidationError
 
 from .iot_helpers import build_folio_lines, build_receipt_lines
+
+MAX_POS_IMAGE_BASE64 = 8 * 1024 * 1024
 
 
 class PosConfig(models.Model):
@@ -68,24 +68,31 @@ class PosConfig(models.Model):
             if not config.community_iot_enabled:
                 continue
             if not config.community_iot_box_id:
-                raise ValidationError("Debe seleccionar una IoT Box para Community IoT.")
+                raise ValidationError(_("Select an IoT Box for Community IoT."))
             for field_name in ("community_iot_receipt_device_id", "community_iot_folio_device_id"):
                 device = config[field_name]
                 if device and device.box_id != config.community_iot_box_id:
-                    raise ValidationError("Las impresoras configuradas deben pertenecer a la IoT Box seleccionada.")
+                    raise ValidationError(_("Configured printers must belong to the selected IoT Box."))
             if config.community_iot_receipt_copies < 1:
-                raise ValidationError("Las copias del ticket deben ser al menos 1.")
+                raise ValidationError(_("Receipt copies must be at least 1."))
+            if config.community_iot_receipt_copies > 10:
+                raise ValidationError(_("Receipt copies cannot exceed 10."))
             if config.community_iot_folio_copies < 1:
-                raise ValidationError("Las copias del folio deben ser al menos 1.")
+                raise ValidationError(_("Folio copies must be at least 1."))
+            if config.community_iot_folio_copies > 10:
+                raise ValidationError(_("Folio copies cannot exceed 10."))
 
     def action_pos_community_iot_print_receipt(self, payload):
         self.ensure_one()
+        if not isinstance(payload, dict):
+            return {"success": False, "message": _("The receipt payload is invalid.")}
         device = self.community_iot_receipt_device_id
         if not self.community_iot_enabled or not device:
-            return {"success": False, "message": "No hay impresora de ticket Community IoT configurada."}
+            return {"success": False, "message": _("No Community IoT receipt printer is configured.")}
 
         receipt_data = payload.get("receipt_data") or {}
         receipt_image_base64 = payload.get("receipt_image_base64") or False
+        self._validate_community_iot_image(receipt_image_base64)
         order_ref = payload.get("order_ref") or receipt_data.get("name") or "POS"
         copies = int(payload.get("copies") or self.community_iot_receipt_copies or 1)
         lines = build_receipt_lines(self, device, receipt_data, order_ref=order_ref)
@@ -107,12 +114,15 @@ class PosConfig(models.Model):
 
     def action_pos_community_iot_print_folio(self, payload):
         self.ensure_one()
+        if not isinstance(payload, dict):
+            return {"success": False, "message": _("The folio payload is invalid.")}
         device = self.community_iot_folio_device_id
         if not self.community_iot_enabled or not device:
-            return {"success": False, "message": "No hay impresora de folios Community IoT configurada."}
+            return {"success": False, "message": _("No Community IoT folio printer is configured.")}
 
         folio_data = payload.get("folio_data") or {}
         folio_image_base64 = payload.get("folio_image_base64") or False
+        self._validate_community_iot_image(folio_image_base64)
         order_ref = payload.get("order_ref") or folio_data.get("orderName") or "POS"
         copies = int(payload.get("copies") or self.community_iot_folio_copies or 1)
         lines = build_folio_lines(self, device, folio_data)
@@ -149,7 +159,7 @@ class PosConfig(models.Model):
     ):
         self.ensure_one()
         if not device.box_id:
-            raise ValidationError("La impresora seleccionada no tiene IoT Box asociada.")
+            raise ValidationError(_("The selected printer has no associated IoT Box."))
 
         payload = device._build_ticket_payload(lines)
         if extra_payload:
@@ -161,21 +171,19 @@ class PosConfig(models.Model):
                 "pos_config_id": self.id,
             }
         )
-        copies = max(1, int(copies or 1))
-        job_vals_list = []
-        for index in range(copies):
-            copy_suffix = f" ({index + 1}/{copies})" if copies > 1 else ""
-            job_vals_list.append(
-                {
-                    "name": f"{job_label} - {order_ref}{copy_suffix}",
-                    "box_id": device.box_id.id,
-                    "device_id": device.id,
-                    "device_key": device.device_key,
-                    "job_type": "ticket_print",
-                    "state": "pending",
-                    "payload": json.dumps(payload),
-                    "origin_model": "pos.order",
-                    "origin_id": int(order_server_id) if order_server_id else False,
-                }
-            )
-        return self.env["community_iot_box.iot_job"].sudo().create(job_vals_list)
+        origin_id = int(order_server_id) if order_server_id else False
+        return self.env["community_iot_box.iot_job"]._create_ticket_jobs(
+            device=device,
+            payload=payload,
+            name=f"{job_label} - {order_ref}",
+            copies=copies,
+            origin_model="pos.order",
+            origin_id=origin_id,
+        )
+
+    @api.model
+    def _validate_community_iot_image(self, image_base64):
+        if image_base64 and (
+            not isinstance(image_base64, str) or len(image_base64) > MAX_POS_IMAGE_BASE64
+        ):
+            raise ValidationError(_("The ticket image exceeds the allowed limit."))

@@ -48,12 +48,13 @@ patch(Order.prototype, {
                     );
                     if (!result?.success) {
                         isPrintSuccessful = false;
+                    } else {
+                        continue;
                     }
                 } catch (error) {
                     console.warn("Community IoT preparation print failed.", error);
                     isPrintSuccessful = false;
                 }
-                continue;
             }
 
             const receipt = renderToElement("point_of_sale.OrderChangeReceipt", {
