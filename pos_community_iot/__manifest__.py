@@ -12,10 +12,11 @@
     "price": 0.0,
     "currency": "USD",
     "images": [
-        "static/description/main_screenshot.gif",
         "static/description/main_screenshot.png",
-        "static/description/images/pos_configuration.png",
-        "static/description/images/pos_screen.png",
+        "static/description/images/pos_configuration_odoo18.png",
+        "static/description/images/pos_copies_folios_odoo18.png",
+        "static/description/images/pos_iot_printer_odoo18.png",
+        "static/description/images/pos_operation_odoo18.png",
     ],
     "depends": ["point_of_sale", "community_iot_box"],
     "data": [
