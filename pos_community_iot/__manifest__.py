@@ -2,7 +2,7 @@
     "name": "POS Community IoT",
     "summary": "Bridge Point of Sale printing to Community IoT devices.",
     "description": "Send POS receipt and preparation print jobs to Community IoT devices.",
-    "version": "17.0.2.0.0",
+    "version": "18.0.1.0.0",
     "category": "Point of Sale",
     "author": "JDA SOLUTIONS",
     "maintainer": "JDA SOLUTIONS",
