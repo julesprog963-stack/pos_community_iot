@@ -11,7 +11,12 @@
     "license": "LGPL-3",
     "price": 0.0,
     "currency": "USD",
-    "images": ["static/description/main_screenshot.gif", "static/description/main_screenshot.png"],
+    "images": [
+        "static/description/main_screenshot.gif",
+        "static/description/main_screenshot.png",
+        "static/description/images/pos_configuration.png",
+        "static/description/images/pos_screen.png",
+    ],
     "depends": ["point_of_sale", "community_iot_box"],
     "data": [
         "views/res_config_settings_views.xml",
