@@ -16,8 +16,8 @@ separate **community_iot_printing** addon.
 Current core dependency release
 --------------------------------
 
-For Odoo 17, download **IoT Box Community 17.0.5.0.0** before installing this
-addon: https://apps.odoo.com/apps/modules/17.0/community_iot_box
+For Odoo 18, download **IoT Box Community 18.0.2.0.0** before installing this
+addon: https://apps.odoo.com/apps/modules/18.0/community_iot_box
 
 Configuration
 -------------
