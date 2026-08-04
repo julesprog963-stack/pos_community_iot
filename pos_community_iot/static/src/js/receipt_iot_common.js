@@ -51,13 +51,14 @@ export async function renderComponentToJpeg({ renderer, component, props, addCla
 
 export async function printReceiptViaCommunityIot({ pos, renderer, component, props }) {
     const config = pos?.config;
-    const receiptData = props?.data || {};
-    const orderRef = receiptData.name || pos?.get_order()?.get_name();
-    const currentOrder = pos?.get_order();
+    const currentOrder = props?.order || pos?.get_order?.() || pos?.getOrder?.();
+    const receiptData = props?.data || { name: currentOrder?.name || currentOrder?.get_name?.() };
+    const orderRef = receiptData.name || currentOrder?.name || currentOrder?.get_name?.();
     const orderServerId =
         pos?.validated_orders_name_server_id_map?.[orderRef] ||
         currentOrder?.backendId ||
         currentOrder?.server_id ||
+        (typeof currentOrder?.id === "number" ? currentOrder.id : false) ||
         false;
 
     if (!config?.id || !orderRef || !renderer?.toHtml) {
@@ -70,17 +71,17 @@ export async function printReceiptViaCommunityIot({ pos, renderer, component, pr
         props,
         addClass: communityIotReceiptRenderClass(config),
     });
-    const result = await pos.orm.call("pos.config", "action_pos_community_iot_print_receipt", [
-        [config.id],
-        {
-            order_ref: orderRef,
-            order_server_id: orderServerId,
-            receipt_data: receiptData,
-            receipt_image_base64: receiptImageBase64,
-            render_mode: "image",
-            image_format: "jpeg",
-            copies: config.community_iot_receipt_copies || 1,
-        },
-    ]);
+    const args = [[config.id], {
+        order_ref: orderRef,
+        order_server_id: orderServerId,
+        receipt_data: receiptData,
+        receipt_image_base64: receiptImageBase64,
+        render_mode: "image",
+        image_format: "jpeg",
+        copies: config.community_iot_receipt_copies || 1,
+    }];
+    const result = pos.orm?.call
+        ? await pos.orm.call("pos.config", "action_pos_community_iot_print_receipt", args)
+        : await pos.data.call("pos.config", "action_pos_community_iot_print_receipt", args);
     return Boolean(result?.success);
 }

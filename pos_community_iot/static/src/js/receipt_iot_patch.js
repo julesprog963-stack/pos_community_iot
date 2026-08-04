@@ -1,41 +1,44 @@
 /** @odoo-module **/
 
 import { patch } from "@web/core/utils/patch";
-import { PosPrinterService } from "@point_of_sale/app/printer/pos_printer_service";
+import { PosStore } from "@point_of_sale/app/store/pos_store";
 import { OrderReceipt } from "@point_of_sale/app/screens/receipt_screen/receipt/order_receipt";
 import { printReceiptViaCommunityIot, shouldUseCommunityIotReceipt } from "@pos_community_iot/js/receipt_iot_common";
 
-patch(PosPrinterService.prototype, {
-    async print(component, props, options) {
-        if (this._shouldUseCommunityIotReceipt(component, props)) {
-            const handled = await this._printReceiptViaCommunityIot(component, props);
-            if (handled) {
-                return true;
+patch(PosStore.prototype, {
+    async printReceipt(options = {}) {
+        const order = options.order || this.get_order();
+        if (shouldUseCommunityIotReceipt(this.config) && order) {
+            const props = {
+                data: this.orderExportForPrinting(order),
+                formatCurrency: this.env.utils.formatCurrency,
+                basic_receipt: options.basic || false,
+            };
+            try {
+                const handled = await printReceiptViaCommunityIot({
+                    pos: this,
+                    renderer: this.printer.renderer,
+                    component: OrderReceipt,
+                    props,
+                });
+                if (handled) {
+                    if (!options.printBillActionTriggered) {
+                        order.nb_print += 1;
+                        if (typeof order.id === "number") {
+                            await this.data.write("pos.order", [order.id], {
+                                nb_print: order.nb_print,
+                            });
+                        }
+                    }
+                    return true;
+                }
+            } catch (error) {
+                console.warn(
+                    "Community IoT receipt print failed, falling back to default printer.",
+                    error
+                );
             }
         }
-        return await super.print(component, props, options);
-    },
-
-    _shouldUseCommunityIotReceipt(component, props) {
-        const config = this.pos?.config;
-        return Boolean(
-            shouldUseCommunityIotReceipt(config) &&
-                (component === OrderReceipt || component?.template === OrderReceipt.template) &&
-                props?.data
-        );
-    },
-
-    async _printReceiptViaCommunityIot(component, props) {
-        try {
-            return await printReceiptViaCommunityIot({
-                pos: this.pos,
-                renderer: this.renderer,
-                component,
-                props,
-            });
-        } catch (error) {
-            console.warn("Community IoT receipt print failed, falling back to default printer.", error);
-            return false;
-        }
+        return super.printReceipt(...arguments);
     },
 });

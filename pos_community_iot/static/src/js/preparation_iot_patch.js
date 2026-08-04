@@ -1,71 +1,47 @@
 /** @odoo-module **/
 
 import { patch } from "@web/core/utils/patch";
-import { renderToElement } from "@web/core/utils/render";
-import { Order } from "@point_of_sale/app/store/models";
+import { PosStore } from "@point_of_sale/app/store/pos_store";
 
-patch(Order.prototype, {
-    async printChanges(cancelled) {
-        const orderChange = this.changesToOrder(cancelled);
-        let isPrintSuccessful = true;
-        const currentDate = new Date();
-        let hours = `${currentDate.getHours()}`;
-        let minutes = `${currentDate.getMinutes()}`;
-        hours = hours.length < 2 ? `0${hours}` : hours;
-        minutes = minutes.length < 2 ? `0${minutes}` : minutes;
-
-        for (const printer of this.pos.unwatched.printers) {
-            const changes = this._getPrintingCategoriesChanges(
-                printer.config.product_categories_ids,
-                orderChange
-            );
-            if (changes.new.length === 0 && changes.cancelled.length === 0) {
-                continue;
-            }
-
+patch(PosStore.prototype, {
+    async printReceipts(order, printer, title, lines, fullReceipt = false, diningModeUpdate) {
+        if (printer.config.community_iot_enabled && printer.config.community_iot_device_id) {
+            const now = new Date();
+            const isCancellation = /cancel|remove/i.test(title || "");
             const printingChanges = {
-                new: changes.new,
-                cancelled: changes.cancelled,
-                table_name: this.pos.config.module_pos_restaurant ? this.getTable().name : false,
-                floor_name: this.pos.config.module_pos_restaurant ? this.getTable().floor.name : false,
-                name: this.name || "unknown order",
-                time: { hours, minutes },
+                new: isCancellation ? [] : lines,
+                cancelled: isCancellation ? lines : [],
+                name: order.name || "unknown order",
+                table_name: order.table_id?.table_number || "",
+                floor_name: order.table_id?.floor_id?.name || "",
+                time: {
+                    hours: String(now.getHours()).padStart(2, "0"),
+                    minutes: String(now.getMinutes()).padStart(2, "0"),
+                },
+                operational_title: title,
+                full_receipt: fullReceipt,
+                dining_mode_update: diningModeUpdate,
             };
-
-            if (printer.config.community_iot_enabled && printer.config.community_iot_device_id) {
-                try {
-                    const result = await this.pos.orm.call(
-                        "pos.printer",
-                        "action_pos_community_iot_print_preparation",
-                        [
-                            [printer.config.id],
-                            {
-                                order_ref: this.name || "unknown order",
-                                order_server_id: this.backendId || false,
-                                printing_changes: printingChanges,
-                            },
-                        ]
-                    );
-                    if (!result?.success) {
-                        isPrintSuccessful = false;
-                    } else {
-                        continue;
-                    }
-                } catch (error) {
-                    console.warn("Community IoT preparation print failed.", error);
-                    isPrintSuccessful = false;
+            try {
+                const result = await this.data.call(
+                    "pos.printer",
+                    "action_pos_community_iot_print_preparation",
+                    [[printer.config.id], {
+                        order_ref: order.name || "unknown order",
+                        order_server_id: typeof order.id === "number" ? order.id : false,
+                        printing_changes: printingChanges,
+                    }]
+                );
+                if (result?.success) {
+                    return true;
                 }
-            }
-
-            const receipt = renderToElement("point_of_sale.OrderChangeReceipt", {
-                changes: printingChanges,
-            });
-            const result = await printer.printReceipt(receipt);
-            if (!result.successful) {
-                isPrintSuccessful = false;
+            } catch (error) {
+                console.warn(
+                    "Community IoT preparation print failed, falling back to the configured printer.",
+                    error
+                );
             }
         }
-
-        return isPrintSuccessful;
+        return super.printReceipts(...arguments);
     },
 });
